@@ -10,8 +10,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -22,8 +25,6 @@ public class FWTool {
 	public static final Pattern HEADER_PATTERN = Pattern.compile("^[0-9]{4}.{12}([A-Z]{2,4})");
 
 	public static void main(String[] args) {
-		// <file/path> [out path] [--pure](only binary without header) 
-		
 		System.out.println("========= Firmare parse tool 1.0 =========");
 		System.out.println("=========  Made by TheDarkDnKTv  =========");
 		System.out.println("= https://github.com/TheDarkDnKTv/fwtool =\n\n");
@@ -32,7 +33,6 @@ public class FWTool {
 			System.out.println("Usage: <input> [--o <output>] [--pure]");
 			System.out.printf("\t%-10s%s\n", "input", "Path to firmware binary or filename");
 			System.out.printf("\t%-10s%s\n", "--o <output>", "Path to output folder [optional]");
-			System.out.printf("\t%-10s%s\n", "--pure", "Make pure binaries, without header (Use only if planning to flash directly to chip) [optional]");
 		} else {
 			Path rom = Paths.get(args[0]);
 			Path output = null;
@@ -82,7 +82,7 @@ public class FWTool {
 					}
 					in.position(0);
 					
-					System.out.println("File size: " + in.size() + " bytes");
+					System.out.println("\nFile size: " + new DecimalFormat("###,###.###", DecimalFormatSymbols.getInstance(Locale.ENGLISH)).format(in.size()) + " bytes");
 					if (in.size() > Integer.MAX_VALUE) exit("FW file too big!!!");
 					
 					buf = ByteBuffer.allocate((int)in.size());
@@ -93,6 +93,8 @@ public class FWTool {
 					
 					List<Integer> headers = FWTool.processRom(buf, output, type);
 					FWTool.parseParts(buf, headers, output);
+					
+					System.out.println("Done. Found " + headers.size() + " parts of firmware.");
 				} else {
 					exit("Wrong FW file");
 				}
@@ -103,7 +105,7 @@ public class FWTool {
 	}
 	
 	static List<Integer> processRom(ByteBuffer buf, Path out, String type) throws IOException {
-		System.out.println("Processing firmware for controller SAS" + type);
+		System.out.println("Processing firmware for controller SAS" + type + "\n");
 		List<Integer> headers = new ArrayList<>();
 		
 		while (buf.remaining() > 32) {
@@ -140,7 +142,6 @@ public class FWTool {
 			buf.get(data);
 			FWPart part = FWPart.parse(data);
 			part.print();
-			
 			part.writeToFile(output, String.format("%02d-%s", i + 1, part.getType()));
 		}
 	}
