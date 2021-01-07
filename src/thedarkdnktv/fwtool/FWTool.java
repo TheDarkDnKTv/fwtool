@@ -6,15 +6,21 @@ import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * @author TheDarkDnKTv
  *
  */
 public class FWTool {
+	public static final Pattern HEADER_PATTERN = Pattern.compile("^[0-9]{4}.{12}([A-Z]{2,4})");
+
 	public static void main(String[] args) {
 		// <file/path> [out path] [--pure](only binary without header) 
 		
@@ -55,12 +61,12 @@ public class FWTool {
 				if (in.read(buf) == 4) {
 					String type = new String(buf.array());
 					System.out.println("Detected FW for SAS" + type);
-					System.out.print("Type Y to continue or other controller type number: ");
+					System.out.print("Press ENTER to continue or a valid controller type: ");
 					
 					BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
 					while (true) {
 						String input = reader.readLine();
-						if (input.equalsIgnoreCase("y")) {
+						if (input.isEmpty()) {
 							break;
 						} else {
 							try {
@@ -74,9 +80,19 @@ public class FWTool {
 							break;
 						}
 					}
-					
 					in.position(0);
-					FWTool.processRom(in, output, type);
+					
+					System.out.println("File size: " + in.size() + " bytes");
+					if (in.size() > Integer.MAX_VALUE) exit("FW file too big!!!");
+					
+					buf = ByteBuffer.allocate((int)in.size());
+					while (buf.hasRemaining())
+						in.read(buf);
+					in.close();
+					buf.position(0);
+					
+					List<Integer> headers = FWTool.processRom(buf, output, type);
+					FWTool.parseParts(buf, headers, output);
 				} else {
 					exit("Wrong FW file");
 				}
@@ -86,10 +102,57 @@ public class FWTool {
 		}
 	}
 	
-	static void processRom(SeekableByteChannel in, Path out, String type) throws IOException {
-		System.out.println("\nProcessing firmware for controller SAS" + type);
+	static List<Integer> processRom(ByteBuffer buf, Path out, String type) throws IOException {
+		System.out.println("Processing firmware for controller SAS" + type);
+		List<Integer> headers = new ArrayList<>();
 		
+		while (buf.remaining() > 32) {
+			int idx = -1;
+			byte[] arr = new byte[32];
+			buf.get(arr);
+			
+			if ((idx = new String(arr, StandardCharsets.US_ASCII).indexOf(type)) >= 0) {
+				if (idx != 0) {
+					if (buf.capacity() < buf.position() + idx + 20) {
+						break;
+					}
+					
+					buf.position(buf.position() + idx - 32);
+					arr = new byte[20];
+					buf.get(arr);
+					idx = 0;
+				}
+				
+				if (HEADER_PATTERN.matcher(new String(arr, StandardCharsets.US_ASCII)).find()) {
+					headers.add(buf.position() - arr.length);
+				}
+			}
+		}
 		
+		buf.position(0);
+		return headers;
+	}
+	
+	static void parseParts(ByteBuffer buf, List<Integer> headers, Path output) {
+		for (int i = 0; i < headers.size(); i++) {
+			int dataSize = i == headers.size() - 1 ? buf.capacity() - headers.get(i) : headers.get(i + 1) - headers.get(i);
+			byte data[] = new byte[dataSize];
+			buf.get(data);
+			FWPart part = FWPart.parse(data);
+			part.print();
+			
+			part.writeToFile(output, String.format("%02d-%s", i + 1, part.getType()));
+		}
+	}
+	
+	// For debugging
+	static void print(byte[] arr) {
+		System.out.print('[');
+		for (int i = 0; i < arr.length; i++) {
+			System.out.print(arr[i]);
+			if (i < arr.length - 1) System.out.print(", ");
+		}
+		System.out.println(']');
 	}
 	
 	static void exit() {
